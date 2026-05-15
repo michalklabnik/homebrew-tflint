@@ -51,11 +51,14 @@ jobs:
         run: |
           set -euo pipefail
           EXPECTED="$(awk -F'"' '/^  version "/ {print $2; exit}' Formula/tflint.rb)"
-          ACTUAL="$(tflint --version | head -n1)"
+          # Capture full output (tflint --version prints multiple lines and `| head`
+          # would trigger SIGPIPE under pipefail).
+          ACTUAL="$(tflint --version 2>&1)"
           echo "expected version: $EXPECTED"
-          echo "tflint reported:  $ACTUAL"
-          if ! echo "$ACTUAL" | grep -qF "$EXPECTED"; then
-            echo "::error::tflint --version output ($ACTUAL) does not contain expected version ($EXPECTED)"
+          echo "tflint reported:"
+          printf '%s\n' "$ACTUAL"
+          if ! printf '%s' "$ACTUAL" | grep -qF "$EXPECTED"; then
+            echo "::error::tflint --version output does not contain expected version $EXPECTED"
             exit 1
           fi
 
