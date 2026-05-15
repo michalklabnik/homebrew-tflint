@@ -64,35 +64,78 @@ Windows are not supported. For other platforms, use the
 [upstream install script](https://github.com/terraform-linters/tflint#installation)
 or the official [GitHub Releases](https://github.com/terraform-linters/tflint/releases).
 
-## How to bump (maintainer notes)
+## Auto-bump
 
-To bump to a new upstream `tflint` release:
+Bumps are handled by a GitHub Actions workflow — I do not normally edit
+[`Formula/tflint.rb`](Formula/tflint.rb) by hand.
 
-1. Look up the latest tag:
-   ```bash
-   gh release view --repo terraform-linters/tflint --json tagName --jq .tagName
-   ```
-2. Download `checksums.txt`:
-   ```bash
-   gh release download <TAG> --repo terraform-linters/tflint \
-     --pattern checksums.txt --output /tmp/tflint-checksums.txt
-   ```
-3. **Verify the attestation** (if this fails — **STOP**):
-   ```bash
-   gh attestation verify /tmp/tflint-checksums.txt -R terraform-linters/tflint
-   ```
-4. Update `version` and both `sha256` values in [`Formula/tflint.rb`](Formula/tflint.rb)
-   using the verified `checksums.txt` (lines `tflint_darwin_arm64.zip` and
-   `tflint_darwin_amd64.zip`).
-5. Validate:
-   ```bash
-   brew style ./Formula/tflint.rb
-   brew install --build-from-source michalklabnik/tflint/tflint
-   tflint --version
-   brew uninstall tflint
-   ```
-6. Commit and push. Mention in the commit message that the hashes were verified with
-   `gh attestation verify`.
+### How it works
+
+[`.github/workflows/bump-tflint.yml`](.github/workflows/bump-tflint.yml) runs daily
+(06:17 UTC) and on manual dispatch. Each run:
+
+1. Compares the `version` in [`Formula/tflint.rb`](Formula/tflint.rb) against the
+   latest `terraform-linters/tflint` GitHub release.
+2. If the upstream is newer, downloads its `checksums.txt`.
+3. **Verifies the checksum file's Sigstore attestation** via `gh attestation verify`.
+   This step is **blocking** — if it fails, the whole workflow fails and no PR is
+   opened.
+4. Rewrites `version` + both `sha256` values via
+   [`scripts/update-formula.sh`](scripts/update-formula.sh) (idempotent).
+5. Pushes a per-version branch (`bump-tflint-X.Y.Z`) and opens a PR with the
+   attestation log attached.
+
+Every PR that touches `Formula/**` (auto-bumps included) is checked by
+[`.github/workflows/verify-formula.yml`](.github/workflows/verify-formula.yml) on
+`macos-latest`: `brew style`, `brew audit`, `brew install --build-from-source`,
+a `tflint --version` assertion against the formula `version`, and `brew test`.
+**Do not merge an auto-bump PR until that check is green.** Merges are always
+manual.
+
+### Where to find things
+
+- **Workflow logs:** the [Actions tab](../../actions) of this repo.
+- **Manual run:** Actions → "Bump tflint" → "Run workflow" (branch `main`).
+- **Open auto-bump PRs:** [PRs filtered by branch prefix](../../pulls?q=is%3Apr+head%3Abump-tflint).
+
+### Security note: reacting to failed attestation verify
+
+If a bump run fails at `gh attestation verify`, treat it as a **red flag**:
+
+- Possible benign causes: the upstream release was published without an
+  attestation, or Sigstore key rotation broke verification.
+- Possible serious cause (rare): tampered release artifacts.
+
+**Reaction:** do not merge anything, do not edit the formula manually to "work
+around" it. Open the upstream release notes and
+[issues](https://github.com/terraform-linters/tflint/issues), wait a day, then
+re-run the workflow. Only proceed with a manual bump if the cause is clearly
+benign and verifiable from independent sources.
+
+### Manual bump (fallback)
+
+Should the automation be broken, the same logic runs locally:
+
+```bash
+gh release download vX.Y.Z --repo terraform-linters/tflint \
+  --pattern checksums.txt --output /tmp/tflint-checksums.txt
+gh attestation verify /tmp/tflint-checksums.txt -R terraform-linters/tflint   # must pass
+ARM=$(awk '$2 == "tflint_darwin_arm64.zip" {print $1}' /tmp/tflint-checksums.txt)
+AMD=$(awk '$2 == "tflint_darwin_amd64.zip" {print $1}' /tmp/tflint-checksums.txt)
+./scripts/update-formula.sh X.Y.Z "$ARM" "$AMD"
+brew style ./Formula/tflint.rb
+brew install --build-from-source michalklabnik/tflint/tflint
+tflint --version
+brew uninstall tflint
+```
+
+### Maintenance: pinned action SHAs
+
+Actions in both workflows are pinned to full commit SHAs (with a trailing
+`# vX.Y.Z` comment), not mutable tags. This shifts the maintenance burden onto
+me: SHAs need to be refreshed periodically (every 3–6 months) so the workflow
+keeps current with upstream action fixes. A `dependabot.yml` for
+`.github/workflows/` could automate this — intentionally not configured yet.
 
 ## Disclaimer
 

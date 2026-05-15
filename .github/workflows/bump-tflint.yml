@@ -1,0 +1,153 @@
+name: Bump tflint
+
+on:
+  schedule:
+    # Daily at 06:17 UTC — odd minute to avoid Actions schedule peaks.
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      UPSTREAM_REPO: terraform-linters/tflint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Determine current and latest version
+        id: versions
+        run: |
+          set -euo pipefail
+          CURRENT="$(awk -F'"' '/^  version "/ {print $2; exit}' Formula/tflint.rb)"
+          if [[ -z "$CURRENT" ]]; then
+            echo "could not parse current version from Formula/tflint.rb" >&2
+            exit 1
+          fi
+          LATEST_TAG="$(gh release view --repo "$UPSTREAM_REPO" --json tagName --jq .tagName)"
+          LATEST="${LATEST_TAG#v}"
+          echo "current=$CURRENT" | tee -a "$GITHUB_OUTPUT"
+          echo "latest=$LATEST"   | tee -a "$GITHUB_OUTPUT"
+          echo "latest_tag=$LATEST_TAG" | tee -a "$GITHUB_OUTPUT"
+          if [[ "$CURRENT" == "$LATEST" ]]; then
+            echo "no bump needed (current=$CURRENT == latest=$LATEST)"
+            echo "needs_bump=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "bump needed: $CURRENT -> $LATEST"
+            echo "needs_bump=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check if PR branch already exists
+        if: steps.versions.outputs.needs_bump == 'true'
+        id: branch_check
+        run: |
+          set -euo pipefail
+          BRANCH="bump-tflint-${{ steps.versions.outputs.latest }}"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "branch $BRANCH already exists on origin — skipping"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download upstream checksums
+        if: steps.versions.outputs.needs_bump == 'true' && steps.branch_check.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          gh release download "${{ steps.versions.outputs.latest_tag }}" \
+            --repo "$UPSTREAM_REPO" \
+            --pattern checksums.txt \
+            --output checksums.txt
+
+      - name: Verify attestation (BLOCKING)
+        if: steps.versions.outputs.needs_bump == 'true' && steps.branch_check.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          gh attestation verify checksums.txt -R "$UPSTREAM_REPO" 2>&1 | tee attestation.log
+          # If verify fails, the pipefail above kills the job. No fallback.
+
+      - name: Extract SHA256 values
+        if: steps.versions.outputs.needs_bump == 'true' && steps.branch_check.outputs.exists == 'false'
+        id: shas
+        run: |
+          set -euo pipefail
+          ARM="$(awk '$2 == "tflint_darwin_arm64.zip" {print $1}' checksums.txt)"
+          AMD="$(awk '$2 == "tflint_darwin_amd64.zip" {print $1}' checksums.txt)"
+          if [[ -z "$ARM" || -z "$AMD" ]]; then
+            echo "missing arm64 or amd64 checksum in checksums.txt" >&2
+            exit 1
+          fi
+          echo "arm=$ARM" >> "$GITHUB_OUTPUT"
+          echo "amd=$AMD" >> "$GITHUB_OUTPUT"
+
+      - name: Update formula
+        if: steps.versions.outputs.needs_bump == 'true' && steps.branch_check.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          ./scripts/update-formula.sh \
+            "${{ steps.versions.outputs.latest }}" \
+            "${{ steps.shas.outputs.arm }}" \
+            "${{ steps.shas.outputs.amd }}"
+
+      - name: Commit and push branch
+        if: steps.versions.outputs.needs_bump == 'true' && steps.branch_check.outputs.exists == 'false'
+        env:
+          BRANCH: ${{ steps.branch_check.outputs.branch }}
+          LATEST: ${{ steps.versions.outputs.latest }}
+        run: |
+          set -euo pipefail
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "$BRANCH"
+          git add Formula/tflint.rb
+
+          {
+            printf 'bump tflint to %s\n\n' "$LATEST"
+            printf 'SHA256 values verified via `gh attestation verify` against\n'
+            printf '%s release v%s.\n\n' "$UPSTREAM_REPO" "$LATEST"
+            printf 'Attestation log (excerpt):\n'
+            head -n 10 attestation.log
+          } > commit-msg.txt
+
+          git commit -F commit-msg.txt
+          git push origin "$BRANCH"
+
+      - name: Open pull request
+        if: steps.versions.outputs.needs_bump == 'true' && steps.branch_check.outputs.exists == 'false'
+        env:
+          BRANCH: ${{ steps.branch_check.outputs.branch }}
+          LATEST: ${{ steps.versions.outputs.latest }}
+          LATEST_TAG: ${{ steps.versions.outputs.latest_tag }}
+        run: |
+          set -euo pipefail
+
+          {
+            printf 'Automated bump from `bump-tflint.yml`.\n\n'
+            printf -- '- Upstream release: <https://github.com/%s/releases/tag/%s>\n' "$UPSTREAM_REPO" "$LATEST_TAG"
+            printf -- '- SHA256 values taken from `checksums.txt` of that release.\n'
+            printf -- '- Attestation verified by `gh attestation verify` (blocking step in the workflow run that produced this PR).\n\n'
+            printf '### Pre-merge checklist\n\n'
+            printf -- '- [ ] `verify-formula.yml` is green on this PR.\n'
+            printf -- '- [ ] Upstream release notes scanned for breaking changes.\n'
+            printf -- '- [ ] No suspicious upstream activity (compromised maintainer accounts, surprise binary additions, etc.).\n\n'
+            printf '### Attestation log\n\n'
+            printf '<details>\n<summary>gh attestation verify output</summary>\n\n'
+            printf '```\n'
+            cat attestation.log
+            printf '\n```\n\n</details>\n'
+          } > pr-body.md
+
+          gh pr create \
+            --title "bump tflint to $LATEST" \
+            --body-file pr-body.md \
+            --base main \
+            --head "$BRANCH"

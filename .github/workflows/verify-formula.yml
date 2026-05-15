@@ -1,0 +1,63 @@
+name: Verify formula
+
+on:
+  pull_request:
+    paths:
+      - 'Formula/**'
+      - 'scripts/update-formula.sh'
+      - '.github/workflows/verify-formula.yml'
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  verify:
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: brew --version
+        run: brew --version
+
+      - name: Symlink checkout as local tap
+        # `brew audit/install` need the formula to live under a tap directory.
+        # The path-argument form (e.g. `brew audit ./Formula/tflint.rb`) is
+        # disabled in current Homebrew, so we expose the checkout as a tap.
+        run: |
+          set -euo pipefail
+          TAP_OWNER="${{ github.repository_owner }}"
+          TAP_NAME="$(basename "${{ github.repository }}" | sed 's/^homebrew-//')"
+          TAP_DIR="$(brew --repository)/Library/Taps/${TAP_OWNER}/homebrew-${TAP_NAME}"
+          mkdir -p "$(dirname "$TAP_DIR")"
+          ln -sfn "$GITHUB_WORKSPACE" "$TAP_DIR"
+          echo "TAP_REF=${TAP_OWNER}/${TAP_NAME}/tflint" >> "$GITHUB_ENV"
+
+      - name: brew style
+        run: brew style ./Formula/tflint.rb
+
+      - name: brew audit
+        # No --new / --strict on purpose: the BUSL-1.1 license is a known
+        # accepted warning for this 3rd-party tap (see README "License" section).
+        # Plain `brew audit` still surfaces real problems (URL/sha/format) as errors.
+        run: brew audit "$TAP_REF"
+
+      - name: brew install --build-from-source
+        run: brew install --build-from-source "$TAP_REF"
+
+      - name: Assert tflint --version matches formula version
+        run: |
+          set -euo pipefail
+          EXPECTED="$(awk -F'"' '/^  version "/ {print $2; exit}' Formula/tflint.rb)"
+          ACTUAL="$(tflint --version | head -n1)"
+          echo "expected version: $EXPECTED"
+          echo "tflint reported:  $ACTUAL"
+          if ! echo "$ACTUAL" | grep -qF "$EXPECTED"; then
+            echo "::error::tflint --version output ($ACTUAL) does not contain expected version ($EXPECTED)"
+            exit 1
+          fi
+
+      - name: brew test
+        run: brew test "$TAP_REF"
