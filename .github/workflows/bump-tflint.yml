@@ -150,4 +150,5 @@ jobs:
             --title "bump tflint to $LATEST" \
             --body-file pr-body.md \
             --base main \
-            --head "$BRANCH"
+            --head "$BRANCH" \
+            --assignee michalklabnik
