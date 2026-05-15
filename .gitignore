@@ -1,0 +1,5 @@
+*.swp
+*.zip
+.claude/settings.local.json
+.DS_Store
+checksums.txt
