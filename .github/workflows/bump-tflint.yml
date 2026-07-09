@@ -43,22 +43,28 @@ jobs:
             echo "needs_bump=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Check if PR branch already exists
+      - name: Check for an existing open PR
         if: steps.versions.outputs.needs_bump == 'true'
-        id: branch_check
+        id: pr_check
         run: |
           set -euo pipefail
           BRANCH="bump-tflint-${{ steps.versions.outputs.latest }}"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
-          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-            echo "branch $BRANCH already exists on origin — skipping"
-            echo "exists=true" >> "$GITHUB_OUTPUT"
+          # Gate on PR existence, not branch existence: a branch that was
+          # pushed but never got a PR (e.g. a failed `gh pr create`) must not
+          # strand the bump forever. If no open PR exists, we (re)create the
+          # branch and open one.
+          OPEN_PRS="$(gh pr list --head "$BRANCH" --state open --json number --jq 'length')"
+          if [[ "$OPEN_PRS" -gt 0 ]]; then
+            echo "an open PR for $BRANCH already exists — nothing to do"
+            echo "pr_exists=true" >> "$GITHUB_OUTPUT"
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "no open PR for $BRANCH — will (re)create branch and open one"
+            echo "pr_exists=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Download upstream checksums
-        if: steps.versions.outputs.needs_bump == 'true' && steps.branch_check.outputs.exists == 'false'
+        if: steps.versions.outputs.needs_bump == 'true' && steps.pr_check.outputs.pr_exists == 'false'
         run: |
           set -euo pipefail
           gh release download "${{ steps.versions.outputs.latest_tag }}" \
@@ -67,14 +73,14 @@ jobs:
             --output checksums.txt
 
       - name: Verify attestation (BLOCKING)
-        if: steps.versions.outputs.needs_bump == 'true' && steps.branch_check.outputs.exists == 'false'
+        if: steps.versions.outputs.needs_bump == 'true' && steps.pr_check.outputs.pr_exists == 'false'
         run: |
           set -euo pipefail
           gh attestation verify checksums.txt -R "$UPSTREAM_REPO" 2>&1 | tee attestation.log
           # If verify fails, the pipefail above kills the job. No fallback.
 
       - name: Extract SHA256 values
-        if: steps.versions.outputs.needs_bump == 'true' && steps.branch_check.outputs.exists == 'false'
+        if: steps.versions.outputs.needs_bump == 'true' && steps.pr_check.outputs.pr_exists == 'false'
         id: shas
         run: |
           set -euo pipefail
@@ -88,7 +94,7 @@ jobs:
           echo "amd=$AMD" >> "$GITHUB_OUTPUT"
 
       - name: Update formula
-        if: steps.versions.outputs.needs_bump == 'true' && steps.branch_check.outputs.exists == 'false'
+        if: steps.versions.outputs.needs_bump == 'true' && steps.pr_check.outputs.pr_exists == 'false'
         run: |
           set -euo pipefail
           ./scripts/update-formula.sh \
@@ -97,9 +103,9 @@ jobs:
             "${{ steps.shas.outputs.amd }}"
 
       - name: Commit and push branch
-        if: steps.versions.outputs.needs_bump == 'true' && steps.branch_check.outputs.exists == 'false'
+        if: steps.versions.outputs.needs_bump == 'true' && steps.pr_check.outputs.pr_exists == 'false'
         env:
-          BRANCH: ${{ steps.branch_check.outputs.branch }}
+          BRANCH: ${{ steps.pr_check.outputs.branch }}
           LATEST: ${{ steps.versions.outputs.latest }}
         run: |
           set -euo pipefail
@@ -107,7 +113,9 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git checkout -b "$BRANCH"
+          # Force-push: the branch may already exist on origin from a prior run
+          # whose PR step failed, so this must be idempotent.
+          git checkout -B "$BRANCH"
           git add Formula/tflint.rb
 
           {
@@ -119,12 +127,18 @@ jobs:
           } > commit-msg.txt
 
           git commit -F commit-msg.txt
-          git push origin "$BRANCH"
+          git push --force origin "$BRANCH"
 
       - name: Open pull request
-        if: steps.versions.outputs.needs_bump == 'true' && steps.branch_check.outputs.exists == 'false'
+        if: steps.versions.outputs.needs_bump == 'true' && steps.pr_check.outputs.pr_exists == 'false'
         env:
-          BRANCH: ${{ steps.branch_check.outputs.branch }}
+          # The default GITHUB_TOKEN cannot open PRs unless the repo setting
+          # "Allow GitHub Actions to create and approve pull requests" is on —
+          # and even then, a GITHUB_TOKEN-opened PR does NOT trigger the
+          # `verify-formula.yml` checks. A fine-grained PAT (pull-requests:
+          # write) both creates the PR and lets that PR trigger CI.
+          GH_TOKEN: ${{ secrets.BUMP_PR_TOKEN }}
+          BRANCH: ${{ steps.pr_check.outputs.branch }}
           LATEST: ${{ steps.versions.outputs.latest }}
           LATEST_TAG: ${{ steps.versions.outputs.latest_tag }}
         run: |

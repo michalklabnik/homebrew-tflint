@@ -82,8 +82,17 @@ Bumps are handled by a GitHub Actions workflow — I do not normally edit
    opened.
 4. Rewrites `version` + both `sha256` values via
    [`scripts/update-formula.sh`](scripts/update-formula.sh) (idempotent).
-5. Pushes a per-version branch (`bump-tflint-X.Y.Z`) and opens a PR with the
-   attestation log attached.
+5. Force-pushes a per-version branch (`bump-tflint-X.Y.Z`) and, **if no open PR
+   for that branch exists yet**, opens a PR with the attestation log attached.
+   The gate is PR existence (not branch existence), so a branch left behind by a
+   failed run is retried instead of silently stranding the bump.
+
+The PR is opened with a fine-grained PAT stored in the repo secret
+`BUMP_PR_TOKEN` (permission: *Pull requests → Read and write*). This is required:
+the default `GITHUB_TOKEN` cannot open PRs unless
+["Allow GitHub Actions to create and approve pull requests"](../../settings/actions)
+is enabled, and even then a `GITHUB_TOKEN`-opened PR would **not** trigger the
+`verify-formula.yml` checks below. A PAT-opened PR does.
 
 Every PR that touches `Formula/**` (auto-bumps included) is checked by
 [`.github/workflows/verify-formula.yml`](.github/workflows/verify-formula.yml) on
