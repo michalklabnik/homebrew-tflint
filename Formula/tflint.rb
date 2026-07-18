@@ -1,17 +1,17 @@
 class Tflint < Formula
   desc "Terraform linter focused on possible errors, best practices, etc"
   homepage "https://github.com/terraform-linters/tflint"
-  version "0.63.1"
+  version "0.64.0"
   license all_of: ["MPL-2.0", "BUSL-1.1"]
 
   on_macos do
     on_arm do
       url "https://github.com/terraform-linters/tflint/releases/download/v#{version}/tflint_darwin_arm64.zip"
-      sha256 "6aab157b22367dcab1635b370e98d6e791d9b40b021d4f9baef010d88f53e16b"
+      sha256 "2496e9cb3d24992d553b45e7c87a0fdc9449ca975233876247a9bfeda857e6c0"
     end
     on_intel do
       url "https://github.com/terraform-linters/tflint/releases/download/v#{version}/tflint_darwin_amd64.zip"
-      sha256 "1a22782473e4a01f0dd23edc649bed4420655a9e3459ffc06951e698eed7ad01"
+      sha256 "0f3a9fd17526014646a2dfc3f9122f7b4161abe3d6b0f0f03f9014483ddf4d19"
     end
   end
 
