@@ -74,13 +74,16 @@ Bumps are handled by a GitHub Actions workflow — I do not normally edit
 [`.github/workflows/bump-tflint.yml`](.github/workflows/bump-tflint.yml) runs daily
 (06:17 UTC) and on manual dispatch. Each run:
 
-1. Compares the `version` in [`Formula/tflint.rb`](Formula/tflint.rb) against the
-   latest `terraform-linters/tflint` GitHub release.
+1. Compares `TFLINT_VERSION` in [`Formula/tflint.rb`](Formula/tflint.rb) against
+   the latest `terraform-linters/tflint` GitHub release. The formula uses this
+   constant instead of the `version` DSL: Homebrew parses the version from the
+   URL, and since Homebrew 7 `brew audit` rejects an explicit `version` as
+   redundant.
 2. If the upstream is newer, downloads its `checksums.txt`.
 3. **Verifies the checksum file's Sigstore attestation** via `gh attestation verify`.
    This step is **blocking** — if it fails, the whole workflow fails and no PR is
    opened.
-4. Rewrites `version` + both `sha256` values via
+4. Rewrites `TFLINT_VERSION` + both `sha256` values via
    [`scripts/update-formula.sh`](scripts/update-formula.sh) (idempotent).
 5. Force-pushes a per-version branch (`bump-tflint-X.Y.Z`) and, **if no open PR
    for that branch exists yet**, opens a PR with the attestation log attached.
@@ -97,7 +100,7 @@ is enabled, and even then a `GITHUB_TOKEN`-opened PR would **not** trigger the
 Every PR that touches `Formula/**` (auto-bumps included) is checked by
 [`.github/workflows/verify-formula.yml`](.github/workflows/verify-formula.yml) on
 `macos-latest`: `brew style`, `brew audit`, `brew install --build-from-source`,
-a `tflint --version` assertion against the formula `version`, and `brew test`.
+a `tflint --version` assertion against the formula `TFLINT_VERSION`, and `brew test`.
 **Do not merge an auto-bump PR until that check is green.** Merges are always
 manual.
 

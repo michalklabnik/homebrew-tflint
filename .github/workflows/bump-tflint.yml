@@ -25,7 +25,7 @@ jobs:
         id: versions
         run: |
           set -euo pipefail
-          CURRENT="$(awk -F'"' '/^  version "/ {print $2; exit}' Formula/tflint.rb)"
+          CURRENT="$(awk -F'"' '/^  TFLINT_VERSION = "/ {print $2; exit}' Formula/tflint.rb)"
           if [[ -z "$CURRENT" ]]; then
             echo "could not parse current version from Formula/tflint.rb" >&2
             exit 1

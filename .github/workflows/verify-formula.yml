@@ -50,7 +50,7 @@ jobs:
       - name: Assert tflint --version matches formula version
         run: |
           set -euo pipefail
-          EXPECTED="$(awk -F'"' '/^  version "/ {print $2; exit}' Formula/tflint.rb)"
+          EXPECTED="$(awk -F'"' '/^  TFLINT_VERSION = "/ {print $2; exit}' Formula/tflint.rb)"
           # Capture full output (tflint --version prints multiple lines and `| head`
           # would trigger SIGPIPE under pipefail).
           ACTUAL="$(tflint --version 2>&1)"
