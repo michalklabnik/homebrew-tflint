@@ -25,8 +25,7 @@ jobs:
         id: versions
         run: |
           set -euo pipefail
-          # The formula has no `version` line; read it from the first url.
-          CURRENT="$(awk -F'/releases/download/v' '/^      url "/ {split($2, p, "/"); print p[1]; exit}' Formula/tflint.rb)"
+          CURRENT="$(awk -F'"' '/^  TFLINT_VERSION = "/ {print $2; exit}' Formula/tflint.rb)"
           if [[ -z "$CURRENT" ]]; then
             echo "could not parse current version from Formula/tflint.rb" >&2
             exit 1

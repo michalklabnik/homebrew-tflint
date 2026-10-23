@@ -40,14 +40,13 @@ if [[ ! -f "$FORMULA" ]]; then
   exit 1
 fi
 
-# Rewrite the version in both url lines and the two sha256 lines scoped to
-# on_arm / on_intel blocks. The formula has no `version` line: Homebrew parses
-# the version from the URL (see the comment in the formula).
+# Rewrite the TFLINT_VERSION line and the two sha256 lines scoped to on_arm /
+# on_intel blocks. Both url lines interpolate TFLINT_VERSION.
 # awk is used over sed because we need block-scoped state (which sha256 belongs
 # to which arch) and we want portable behavior across BSD/GNU.
 awk -v new_ver="$NEW_VERSION" -v arm="$ARM_SHA" -v amd="$AMD_SHA" '
-  /^      url "/ {
-    sub(/\/releases\/download\/v[0-9.]+\//, "/releases/download/v" new_ver "/")
+  /^  TFLINT_VERSION = "[^"]*"\.freeze$/ {
+    sub(/"[^"]*"/, "\"" new_ver "\"")
     print
     next
   }
@@ -69,8 +68,8 @@ awk -v new_ver="$NEW_VERSION" -v arm="$ARM_SHA" -v amd="$AMD_SHA" '
 
 mv "$FORMULA.tmp" "$FORMULA"
 
-# Sanity: confirm the version landed in both URLs and each sha256 landed.
-[[ "$(grep -cF "/releases/download/v$NEW_VERSION/" "$FORMULA")" -eq 2 ]] || { echo "error: version not updated in both urls" >&2; exit 1; }
+# Sanity: confirm all three values landed exactly once.
+grep -qx "  TFLINT_VERSION = \"$NEW_VERSION\".freeze" "$FORMULA" || { echo "error: version not updated" >&2; exit 1; }
 grep -qx "      sha256 \"$ARM_SHA\""  "$FORMULA" || { echo "error: arm64 sha not updated" >&2; exit 1; }
 grep -qx "      sha256 \"$AMD_SHA\""  "$FORMULA" || { echo "error: amd64 sha not updated" >&2; exit 1; }
 
