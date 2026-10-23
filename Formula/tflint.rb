@@ -1,7 +1,7 @@
 class Tflint < Formula
   # Not the `version` DSL: Homebrew parses the version from the URLs, and since
   # Homebrew 7 `brew audit` rejects an explicit `version` as redundant.
-  TFLINT_VERSION = "0.63.1".freeze
+  TFLINT_VERSION = "0.65.0".freeze
 
   desc "Terraform linter focused on possible errors, best practices, etc"
   homepage "https://github.com/terraform-linters/tflint"
@@ -10,11 +10,11 @@ class Tflint < Formula
   on_macos do
     on_arm do
       url "https://github.com/terraform-linters/tflint/releases/download/v#{TFLINT_VERSION}/tflint_darwin_arm64.zip"
-      sha256 "6aab157b22367dcab1635b370e98d6e791d9b40b021d4f9baef010d88f53e16b"
+      sha256 "5a71c63481ba56760864298011fdb7317a9ae80a0bbaeceefa35883c7f62ac71"
     end
     on_intel do
       url "https://github.com/terraform-linters/tflint/releases/download/v#{TFLINT_VERSION}/tflint_darwin_amd64.zip"
-      sha256 "1a22782473e4a01f0dd23edc649bed4420655a9e3459ffc06951e698eed7ad01"
+      sha256 "27696ea23ed77c1918945147ebfe6485a74f58560b9557ccecc77379205702c5"
     end
   end
 
