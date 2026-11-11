@@ -76,7 +76,18 @@ jobs:
         if: steps.versions.outputs.needs_bump == 'true' && steps.pr_check.outputs.pr_exists == 'false'
         run: |
           set -euo pipefail
-          gh attestation verify checksums.txt -R "$UPSTREAM_REPO" 2>&1 | tee attestation.log
+          # Without --format json, `gh attestation verify` prints nothing on
+          # success outside a terminal, so the PR body showed an empty log.
+          # Errors still go to stderr and show in the job log.
+          gh attestation verify checksums.txt -R "$UPSTREAM_REPO" --format json --jq '
+            .[].verificationResult
+            | "attested sha256: \(.statement.subject[0].digest.sha256)",
+              "signer workflow: \(.signature.certificate.buildSignerURI)",
+              "source ref:      \(.signature.certificate.sourceRepositoryRef)",
+              "source commit:   \(.signature.certificate.sourceRepositoryDigest)",
+              "build trigger:   \(.signature.certificate.buildTrigger)",
+              "build run:       \(.signature.certificate.runInvocationURI)"
+          ' | tee attestation.log
           # If verify fails, the pipefail above kills the job. No fallback.
 
       - name: Extract SHA256 values
