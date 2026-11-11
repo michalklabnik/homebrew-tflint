@@ -26,6 +26,8 @@ jobs:
         # `brew audit/install` need the formula to live under a tap directory.
         # The path-argument form (e.g. `brew audit ./Formula/tflint.rb`) is
         # disabled in current Homebrew, so we expose the checkout as a tap.
+        # Since Homebrew 7.0.11, formulae from non-official taps load only
+        # after `brew trust`, so the tap is trusted right after it is created.
         run: |
           set -euo pipefail
           TAP_OWNER="${{ github.repository_owner }}"
@@ -33,6 +35,7 @@ jobs:
           TAP_DIR="$(brew --repository)/Library/Taps/${TAP_OWNER}/homebrew-${TAP_NAME}"
           mkdir -p "$(dirname "$TAP_DIR")"
           ln -sfn "$GITHUB_WORKSPACE" "$TAP_DIR"
+          brew trust --tap "${TAP_OWNER}/${TAP_NAME}"
           echo "TAP_REF=${TAP_OWNER}/${TAP_NAME}/tflint" >> "$GITHUB_ENV"
 
       - name: brew style
